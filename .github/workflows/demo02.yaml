@@ -29,11 +29,14 @@ jobs:
             zlib-devel libreadline-devel libcrypt-devel openssl-devel libgcrypt-devel
 
       - name: 3. Configure, Build and Package
-        # 强制使用 Cygwin 的 bash 环境，而非 Windows 自带的 Git Bash
+        # 强制使用 Cygwin 的 bash 环境
         shell: C:\tools\cygwin\bin\bash.exe --noprofile --norc -eo pipefail '{0}'
+        env:
+          # 关键修复 1：让 Cygwin 的 Bash 忽略 Windows 风格的 \r 换行符
+          SHELLOPTS: igncr
         run: |
-          # 将 GitHub 的 Windows 工作区路径转换为 Cygwin 兼容的 Linux 路径格式
-          WORKSPACE_DIR=$(cygpath -u '${{ github.workspace }}')
+          # 关键修复 2：改用原生的 GITHUB_WORKSPACE 变量，并用 tr -d '\r' 强制剔除末尾的隐形回车符
+          WORKSPACE_DIR=$(cygpath -u "$GITHUB_WORKSPACE" | tr -d '\r')
           cd "$WORKSPACE_DIR/ipmitool-source"
 
           echo "开始配置与编译 IPMItool..."
