@@ -29,24 +29,24 @@ jobs:
             zlib-devel libreadline-devel libcrypt-devel openssl-devel libgcrypt-devel
 
       - name: 3. Configure, Build and Package
-        # 强制使用 Cygwin 的 bash 环境
-        shell: C:\tools\cygwin\bin\bash.exe --noprofile --norc -eo pipefail '{0}'
+        # 关键修复 1：移除 --eo pipefail，防止 errexit 污染子脚本的编译环境
+        shell: C:\tools\cygwin\bin\bash.exe --noprofile --norc '{0}'
         env:
-          # 关键修复 1：让 Cygwin 的 Bash 忽略 Windows 风格的 \r 换行符
+          # 保留忽略回车符的设定
           SHELLOPTS: igncr
         run: |
-          # 关键修复 2：改用原生的 GITHUB_WORKSPACE 变量，并用 tr -d '\r' 强制剔除末尾的隐形回车符
           WORKSPACE_DIR=$(cygpath -u "$GITHUB_WORKSPACE" | tr -d '\r')
-          cd "$WORKSPACE_DIR/ipmitool-source"
+          cd "$WORKSPACE_DIR/ipmitool-source" || exit 1
 
           echo "开始配置与编译 IPMItool..."
-          ./bootstrap
-          ./configure --enable-intf-lanplus
-          make
-          make install
+          # 关键修复 2：采用手动捕获错误，替代全局的 set -e
+          ./bootstrap || { echo "Bootstrap 失败"; exit 1; }
+          ./configure --enable-intf-lanplus || { echo "Configure 失败"; exit 1; }
+          make || { echo "Make 编译失败"; exit 1; }
+          make install || { echo "Make install 失败"; exit 1; }
 
           echo "开始打包文件..."
-          cd "$WORKSPACE_DIR"
+          cd "$WORKSPACE_DIR" || exit 1
           mkdir ipmitool-pkg
 
           # 兼容不同版本编译后 exe 的存放位置
@@ -56,7 +56,7 @@ jobs:
             cp ipmitool-source/src/ipmitool.exe ipmitool-pkg/
           fi
 
-          # 提取必须的 Cygwin DLL 动态链接库，加入 || true 防止匹配不到特定版本时终止运行
+          # 提取必须的 Cygwin DLL 动态链接库
           cp /bin/cygwin1.dll ipmitool-pkg/
           cp /bin/cygcrypto*.dll ipmitool-pkg/ || true
           cp /bin/cygz.dll ipmitool-pkg/ || true
