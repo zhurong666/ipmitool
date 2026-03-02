@@ -1,0 +1,68 @@
+name: Build ipmitool for Windows
+
+on:
+  push:
+    branches: [ master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Setup MSYS2 + MinGW-w64
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-openssl
+            mingw-w64-x86_64-readline
+            autoconf
+            automake
+            libtool
+            make
+            pkg-config
+
+      - name: Bootstrap autotools
+        run: ./bootstrap
+
+      - name: Configure
+        run: |
+          ./configure \
+            --host=x86_64-w64-mingw32 \
+            --disable-intf-open \
+            --disable-intf-imb \
+            --disable-intf-usb \
+            --enable-intf-lan \
+            --enable-intf-lanplus \
+            CFLAGS="-D_WIN32_WINNT=0x0602 -DWINVER=0x0602 -static-libgcc -O2" \
+            LDFLAGS="-static -static-libgcc" \
+            LIBS="-lws2_32 -liphlpapi"
+
+      # _WIN32_WINNT=0x0602 = Windows 8 / Server 2012，兼容 2012 及以上
+      # --disable-intf-open/imb/usb：这三个接口是 Linux 专用，Windows 不可用
+      # -static：把 OpenSSL、libgcc 等全部静态打进 exe，无需目标机安装任何运行库
+
+      - name: Build
+        run: make -j$(nproc)
+
+      - name: Verify binary
+        run: |
+          file src/ipmitool.exe
+          src/ipmitool.exe -V || true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ipmitool-windows-x64
+          path: src/ipmitool.exe
+          retention-days: 30

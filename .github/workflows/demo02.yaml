@@ -1,0 +1,72 @@
+name: Build IPMItool for Windows
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch: # 允许在 GitHub Actions 页面手动触发执行
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: 1. Checkout IPMItool Source
+        uses: actions/checkout@v4
+        with:
+          repository: ipmitool/ipmitool # 自动拉取 IPMItool 官方最新源码
+          path: ipmitool-source
+
+      - name: 2. Setup Cygwin Environment
+        uses: egor-tensin/setup-cygwin@v4
+        with:
+          platform: x64
+          # 完全按照你提供的依赖列表进行自动化安装
+          packages: >-
+            autoconf autoconf2.5 autogen automake automake1.15 libtool make
+            gcc-g++ mingw64-x86_64-gcc-core mingw64-x86_64-gcc-g++
+            zlib-devel libreadline-devel libcrypt-devel openssl-devel libgcrypt-devel
+
+      - name: 3. Configure, Build and Package
+        # 强制使用 Cygwin 的 bash 环境，而非 Windows 自带的 Git Bash
+        shell: C:\tools\cygwin\bin\bash.exe --noprofile --norc -eo pipefail '{0}'
+        run: |
+          # 将 GitHub 的 Windows 工作区路径转换为 Cygwin 兼容的 Linux 路径格式
+          WORKSPACE_DIR=$(cygpath -u '${{ github.workspace }}')
+          cd "$WORKSPACE_DIR/ipmitool-source"
+
+          echo "开始配置与编译 IPMItool..."
+          ./bootstrap
+          ./configure --enable-intf-lanplus
+          make
+          make install
+
+          echo "开始打包文件..."
+          cd "$WORKSPACE_DIR"
+          mkdir ipmitool-pkg
+
+          # 兼容不同版本编译后 exe 的存放位置
+          if [ -f "ipmitool-source/src/.libs/ipmitool.exe" ]; then
+            cp ipmitool-source/src/.libs/ipmitool.exe ipmitool-pkg/
+          else
+            cp ipmitool-source/src/ipmitool.exe ipmitool-pkg/
+          fi
+
+          # 提取必须的 Cygwin DLL 动态链接库，加入 || true 防止匹配不到特定版本时终止运行
+          cp /bin/cygwin1.dll ipmitool-pkg/
+          cp /bin/cygcrypto*.dll ipmitool-pkg/ || true
+          cp /bin/cygz.dll ipmitool-pkg/ || true
+          cp /bin/cyggcc_s-*.dll ipmitool-pkg/ || true
+          cp /bin/cygreadline*.dll ipmitool-pkg/ || true
+          cp /bin/cygncursesw-*.dll ipmitool-pkg/ || true
+
+          # 压缩打包
+          tar -zcvf ipmitool-windows.tar.gz ipmitool-pkg/
+
+      - name: 4. Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ipmitool-windows-build
+          path: ipmitool-windows.tar.gz
+          retention-days: 30 # 生成的构建产物在 GitHub 上保留 30 天
